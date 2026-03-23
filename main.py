@@ -2,41 +2,47 @@ import torch
 from typing import Callable
 import matplotlib.pyplot as plt
 
+class VSAConv1d:
+    def __init__(self, dim: int = 10000, max_len: int = 1000):
+        self.dim = dim
+        self.max_len = max_len
+        self.z_encodings = self._make_assoc_mem()
 
-def make_encoder(dim: int = 10_000, max_len: int = 1000):
-    phases = torch.rand(dim) * (2 * torch.pi) - torch.pi    # [D, ]
+    def _make_assoc_mem(self):
+        """
+        Create associative memory to store z(r) for r in {1, 2, ..., max_len}
+        """
+        phases = torch.rand(self.dim) * (2 * torch.pi) - torch.pi    # [D, ]
 
-    r = torch.arange(max_len).float().unsqueeze(1)          # [L, 1]
-    encodings = torch.exp(1j * r * phases)                  # [L, D]
+        r = torch.arange(self.max_len).float().unsqueeze(1)           # [L, 1]
+        encodings = torch.exp(1j * r * phases)                        # [L, D]
 
-    return lambda r: encodings[r]
+        return encodings
 
+    def function_representation(self, f: torch.Tensor) -> torch.Tensor:
+        """Compute vector representation for function f[r]"""
+        assert f.dim() == 1, f"Expect 1-D data but receive {f.dim()}"
 
-def function_representation(f: torch.Tensor, encode: Callable) -> torch.Tensor:
-    """Compute vector representation for function f[r]"""
-    assert len(f.shape)==1, f"Expect 1-D data but receive {len(f.shape)}"
-    r = torch.arange(len(f))
-    E = encode(r)               # [L, D]
-    return (f.unsqueeze(1) * E).sum(dim=0)   # [D]
+        Z = self.z_encodings[:len(f)]                  # [L, D]
+        return (f.unsqueeze(1) * Z).sum(dim=0)         # [D]
 
+    def retrieve(self, y_f: torch.Tensor, indices: torch.Tensor):
+        """Retrieve (approximate) f[s] from function representation y_f"""
+        Z = self.z_encodings[indices]                  # [L, D]
+        return torch.real(Z @ torch.conj(y_f)) / self.dim
 
-def retrieve(y_f: torch.Tensor, indices: torch.Tensor, encode: Callable):
-    """Retrieve (approximate) f[s] from function representation y_f"""
-    E = encode(indices)             # [L, D]
-    return torch.real(E @ torch.conj(y_f)) / y_f.shape[0]
+    def bind(self, y_f: torch.Tensor, y_g: torch.Tensor) -> torch.Tensor:
+        return y_f * y_g
 
-
-def bind(y_f: torch.Tensor, y_g: torch.Tensor) -> torch.Tensor:
-    return y_f * y_g
-
-
-def vsa_convolution(f: torch.Tensor, g: torch.Tensor, encode: Callable) -> torch.Tensor:
-    """Approximate convolution using VSA """
-    y_bound = bind(function_representation(f, encode),
-                   function_representation(g, encode))
-    out_len = len(f) + len(g) - 1
-    indices = torch.arange(out_len)
-    return retrieve(y_bound, indices, encode)
+    def forward(self, f: torch.Tensor, g: torch.Tensor) -> torch.Tensor:
+        """Approximate convolution using VSA """
+        y_bound = self.bind(
+            self.function_representation(f),
+            self.function_representation(g),
+        )
+        out_len = len(f) + len(g) - 1
+        indices = torch.arange(out_len)
+        return self.retrieve(y_bound, indices)
 
 
 if __name__ == "__main__":
@@ -54,8 +60,8 @@ if __name__ == "__main__":
     for dim in dims:
         mses = []
         for _ in range(num_trials):
-            encode = make_encoder(dim=dim, max_len=max_len)
-            vsa_conv  = vsa_convolution(f, g, encode)
+            vsa_conv_layer = VSAConv1d(dim=dim, max_len=max_len)
+            vsa_conv  = vsa_conv_layer.forward(f, g)
 
             true_conv = torch.nn.functional.conv1d(
                 f.view(1, 1, -1),
