@@ -53,7 +53,7 @@ if __name__ == "__main__":
 
     num_trials = 5
     errors = []
-    dims = [i for i in range(100, 10000, 100)]
+    dims = [i for i in range(100, 100000, 1000)]
 
     max_len = len(f) + len(g)
 
