@@ -7,3 +7,8 @@ A demo how Vecto Symbolic Architecture (VSA) can approximate convolutions. See a
   <img src="./result.png" alt="MSE error">
 </figure>
 
+
+TODO: 
+- [ ] Generalize to Conv2d
+- [ ] Generalize to high-dimensional in/ouput channels
+- [ ] Learnable parameter
